@@ -1,0 +1,2011 @@
+NESTJS + TYPEORM + POSTGRESQL EXAM MANUAL
+=========================================
+
+This file is designed to be enough by itself during an exam.
+Follow the sections in order. Replace Product/products with the entity named in the question.
+
+
+TABLE OF CONTENTS
+-----------------
+1. The NestJS mental model
+2. New project setup
+3. Generate a resource
+4. PostgreSQL setup and connection
+5. Global validation
+6. Entity/table template
+7. DTO validation templates
+8. Module template
+9. Complete CRUD service template
+10. Complete controller/API template
+11. Query, filter, search, sort and pagination
+12. File upload API
+13. Dependency injection patterns
+14. Relationships
+15. Postman and curl testing
+16. Useful SQL and psql commands
+17. Common errors and fixes
+18. Exam checklist
+19. The four lab-task route checklists
+
+
+1. THE NESTJS MENTAL MODEL
+--------------------------
+
+Request flow:
+
+Client/Postman
+    -> Controller (receives HTTP request)
+    -> Service (business logic)
+    -> TypeORM Repository (database commands)
+    -> PostgreSQL table
+
+Important files:
+
+Entity     = describes a PostgreSQL table.
+DTO        = describes and validates request data.
+Controller = declares URLs and HTTP methods.
+Service    = contains logic and database operations.
+Module     = connects entity, controller and service.
+AppModule  = connects the whole application and database.
+main.ts    = starts NestJS and enables global features.
+
+Golden architecture rule:
+
+Controller -> Service -> Repository -> Database
+
+Never put database queries in a controller.
+Never create a service using new ProductService(). NestJS injects it.
+
+
+2. NEW PROJECT SETUP
+--------------------
+
+Install Nest CLI once:
+
+    npm install -g @nestjs/cli
+
+Create and enter a project:
+
+    nest new ProductInventoryAPI
+    cd ProductInventoryAPI
+
+Run during development:
+
+    npm run start:dev
+
+Default URL:
+
+    http://localhost:3000
+
+If port 3000 is already used:
+
+    PORT=3001 npm run start:dev
+
+Check compilation at any time:
+
+    npm run build
+
+
+3. GENERATE A RESOURCE
+----------------------
+
+For an entity named Product:
+
+    nest g module products
+    nest g controller products
+    nest g service products
+
+Create folders:
+
+    src/products/dto
+    src/products/entities
+
+Recommended structure:
+
+src/
+  app.module.ts
+  main.ts
+  products/
+    products.module.ts
+    products.controller.ts
+    products.service.ts
+    dto/
+      create-product.dto.ts
+      update-product.dto.ts
+      partial-update-product.dto.ts
+    entities/
+      products.entity.ts
+
+
+4. POSTGRESQL SETUP AND CONNECTION
+----------------------------------
+
+Install project packages:
+
+    npm install @nestjs/typeorm typeorm pg
+    npm install class-validator class-transformer @nestjs/mapped-types
+
+Check PostgreSQL:
+
+    brew services list
+    pg_isready
+
+Start it if necessary:
+
+    brew services start postgresql@15
+
+Create a database from Terminal:
+
+    createdb product_inventory_db
+
+Alternative inside psql/pgAdmin Query Tool:
+
+    CREATE DATABASE product_inventory_db;
+
+This Mac's working local connection is:
+
+    host:     127.0.0.1
+    port:     5432
+    username: onukrom
+    password: empty
+
+app.module.ts database template:
+
+    import { Module } from '@nestjs/common';
+    import { TypeOrmModule } from '@nestjs/typeorm';
+    import { ProductsModule } from './products/products.module';
+
+    @Module({
+      imports: [
+        TypeOrmModule.forRoot({
+          type: 'postgres',
+          host: '127.0.0.1',
+          port: 5432,
+          username: 'onukrom',
+          password: '',
+          database: 'product_inventory_db',
+          autoLoadEntities: true,
+          synchronize: true,
+        }),
+        ProductsModule,
+      ],
+    })
+    export class AppModule {}
+
+synchronize: true automatically creates/updates tables from entities.
+Use it for labs/exams/development. Do not use it in production.
+
+Optional .env approach:
+
+Install:
+
+    npm install @nestjs/config
+
+.env:
+
+    DB_HOST=127.0.0.1
+    DB_PORT=5432
+    DB_USERNAME=onukrom
+    DB_PASSWORD=
+    DB_DATABASE=product_inventory_db
+
+Add .env to .gitignore.
+
+AppModule imports when using .env:
+
+    ConfigModule.forRoot({ isGlobal: true }),
+    TypeOrmModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        type: 'postgres',
+        host: config.get<string>('DB_HOST'),
+        port: config.get<number>('DB_PORT'),
+        username: config.get<string>('DB_USERNAME'),
+        password: config.get<string>('DB_PASSWORD'),
+        database: config.get<string>('DB_DATABASE'),
+        autoLoadEntities: true,
+        synchronize: true,
+      }),
+    }),
+
+Required imports:
+
+    import { ConfigModule, ConfigService } from '@nestjs/config';
+
+
+5. GLOBAL VALIDATION
+--------------------
+
+main.ts:
+
+    import { ValidationPipe } from '@nestjs/common';
+    import { NestFactory } from '@nestjs/core';
+    import { AppModule } from './app.module';
+
+    async function bootstrap() {
+      const app = await NestFactory.create(AppModule);
+
+      app.useGlobalPipes(
+        new ValidationPipe({
+          whitelist: true,
+          forbidNonWhitelisted: true,
+          transform: true,
+        }),
+      );
+
+      await app.listen(process.env.PORT ?? 3000);
+    }
+    bootstrap();
+
+Meaning:
+
+whitelist             = only DTO fields are accepted.
+forbidNonWhitelisted  = unknown fields cause 400 Bad Request.
+transform             = allows transformations such as string to number.
+
+
+6. ENTITY/TABLE TEMPLATE
+------------------------
+
+src/products/entities/products.entity.ts:
+
+    import {
+      Column,
+      CreateDateColumn,
+      Entity,
+      PrimaryGeneratedColumn,
+      UpdateDateColumn,
+    } from 'typeorm';
+
+    @Entity()
+    export class Products {
+      @PrimaryGeneratedColumn()
+      id: number;
+
+      @Column()
+      name: string;
+
+      @Column({ nullable: true })
+      description?: string;
+
+      @Column({ type: 'decimal', precision: 10, scale: 2 })
+      price: number;
+
+      @Column({ default: 0 })
+      stock: number;
+
+      @Column()
+      category: string;
+
+      @Column({ default: true })
+      isActive: boolean;
+
+      @CreateDateColumn()
+      createdAt: Date;
+
+      @UpdateDateColumn()
+      updatedAt: Date;
+    }
+
+Common TypeORM column patterns:
+
+    @PrimaryGeneratedColumn()
+    id: number;
+
+    @Column()
+    title: string;
+
+    @Column({ unique: true })
+    email: string;
+
+    @Column({ nullable: true })
+    phone?: string;
+
+    @Column({ default: true })
+    isActive: boolean;
+
+    @Column({ type: 'int', default: 0 })
+    quantity: number;
+
+    @Column({ type: 'decimal', precision: 10, scale: 2 })
+    price: number;
+
+    @Column({ type: 'text' })
+    details: string;
+
+    @Column({ type: 'date' })
+    birthDate: Date;
+
+    @CreateDateColumn()
+    createdAt: Date;
+
+    @UpdateDateColumn()
+    updatedAt: Date;
+
+Never manually send id, createdAt or updatedAt unless the question explicitly requires it.
+
+
+7. DTO VALIDATION TEMPLATES
+---------------------------
+
+src/products/dto/create-product.dto.ts:
+
+    import { Type } from 'class-transformer';
+    import {
+      IsBoolean,
+      IsEmail,
+      IsInt,
+      IsNotEmpty,
+      IsNumber,
+      IsOptional,
+      IsPositive,
+      IsString,
+      Max,
+      Min,
+      MinLength,
+    } from 'class-validator';
+
+    export class CreateProductDto {
+      @IsString()
+      @IsNotEmpty()
+      name: string;
+
+      @IsString()
+      @IsOptional()
+      description?: string;
+
+      @Type(() => Number)
+      @IsNumber()
+      @IsPositive()
+      price: number;
+
+      @Type(() => Number)
+      @IsInt()
+      @Min(0)
+      @IsOptional()
+      stock?: number;
+
+      @IsString()
+      @IsNotEmpty()
+      category: string;
+
+      @IsBoolean()
+      @IsOptional()
+      isActive?: boolean;
+    }
+
+Other useful validators:
+
+    @IsEmail()
+    email: string;
+
+    @MinLength(8)
+    password: string;
+
+    @Min(1)
+    @Max(6)
+    credits: number;
+
+    @IsOptional()
+    optionalField?: string;
+
+PUT/full update DTO (required fields remain required):
+
+    import { CreateProductDto } from './create-product.dto';
+    export class UpdateProductDto extends CreateProductDto {}
+
+PATCH/partial update DTO (all fields become optional):
+
+    import { PartialType } from '@nestjs/mapped-types';
+    import { CreateProductDto } from './create-product.dto';
+    export class PartialUpdateProductDto extends PartialType(CreateProductDto) {}
+
+Remember:
+
+POST  -> CreateDto
+PUT   -> UpdateDto extends CreateDto
+PATCH -> PartialUpdateDto extends PartialType(CreateDto)
+
+
+8. MODULE TEMPLATE
+------------------
+
+src/products/products.module.ts:
+
+    import { Module } from '@nestjs/common';
+    import { TypeOrmModule } from '@nestjs/typeorm';
+    import { Products } from './entities/products.entity';
+    import { ProductsController } from './products.controller';
+    import { ProductsService } from './products.service';
+
+    @Module({
+      imports: [TypeOrmModule.forFeature([Products])],
+      controllers: [ProductsController],
+      providers: [ProductsService],
+    })
+    export class ProductsModule {}
+
+forFeature([Products]) makes Repository<Products> injectable in this module.
+
+
+9. COMPLETE CRUD SERVICE TEMPLATE
+---------------------------------
+
+src/products/products.service.ts:
+
+    import { Injectable, NotFoundException } from '@nestjs/common';
+    import { InjectRepository } from '@nestjs/typeorm';
+    import { ILike, Repository } from 'typeorm';
+    import { CreateProductDto } from './dto/create-product.dto';
+    import { PartialUpdateProductDto } from './dto/partial-update-product.dto';
+    import { UpdateProductDto } from './dto/update-product.dto';
+    import { Products } from './entities/products.entity';
+
+    @Injectable()
+    export class ProductsService {
+      constructor(
+        @InjectRepository(Products)
+        private readonly productsRepo: Repository<Products>,
+      ) {}
+
+      async create(dto: CreateProductDto) {
+        const product = this.productsRepo.create(dto);
+        const data = await this.productsRepo.save(product);
+        return { message: 'Product created successfully', data };
+      }
+
+      async findAll() {
+        const data = await this.productsRepo.find({
+          order: { createdAt: 'DESC' },
+        });
+        return { message: 'All products fetched', count: data.length, data };
+      }
+
+      async findOne(id: number) {
+        const product = await this.productsRepo.findOne({ where: { id } });
+        if (!product) {
+          throw new NotFoundException(`Product with id ${id} not found`);
+        }
+        return { message: 'Product fetched', data: product };
+      }
+
+      async update(id: number, dto: PartialUpdateProductDto) {
+        const { data: product } = await this.findOne(id);
+        Object.assign(product, dto);
+        const data = await this.productsRepo.save(product);
+        return { message: 'Product updated', data };
+      }
+
+      async replace(id: number, dto: UpdateProductDto) {
+        const { data: product } = await this.findOne(id);
+        Object.assign(product, dto);
+        const data = await this.productsRepo.save(product);
+        return { message: 'Product replaced', data };
+      }
+
+      async remove(id: number) {
+        await this.findOne(id);
+        await this.productsRepo.delete(id);
+        return { message: 'Product deleted', id };
+      }
+
+      async findByCategory(category: string) {
+        const data = await this.productsRepo.find({ where: { category } });
+        return { message: 'Category results', count: data.length, data };
+      }
+
+      async search(keyword: string) {
+        const data = await this.productsRepo.find({
+          where: { name: ILike(`%${keyword}%`) },
+        });
+        return { message: 'Search results', count: data.length, data };
+      }
+
+      async toggleActive(id: number) {
+        const { data: product } = await this.findOne(id);
+        product.isActive = !product.isActive;
+        const data = await this.productsRepo.save(product);
+        return { message: 'Status toggled', data };
+      }
+    }
+
+Repository cheat sheet:
+
+repo.create(dto)                 creates an entity object, not a database row.
+repo.save(entity)                INSERTS new or UPDATES existing entity.
+repo.find()                      SELECT all rows.
+repo.findOne({ where: { id } })  SELECT one row.
+repo.update(id, dto)             UPDATE without returning updated entity.
+repo.delete(id)                  DELETE by id.
+repo.remove(entity)              DELETE an entity already fetched.
+repo.count()                     COUNT rows.
+
+Why create then save?
+
+    const entity = repo.create(dto); // memory only
+    return repo.save(entity);        // database INSERT
+
+
+10. COMPLETE CONTROLLER/API TEMPLATE
+------------------------------------
+
+src/products/products.controller.ts:
+
+    import {
+      Body, Controller, Delete, Get, Param, ParseIntPipe,
+      Patch, Post, Put, Query,
+    } from '@nestjs/common';
+    import { CreateProductDto } from './dto/create-product.dto';
+    import { PartialUpdateProductDto } from './dto/partial-update-product.dto';
+    import { UpdateProductDto } from './dto/update-product.dto';
+    import { ProductsService } from './products.service';
+
+    @Controller('products')
+    export class ProductsController {
+      constructor(private readonly productsService: ProductsService) {}
+
+      @Post()
+      create(@Body() dto: CreateProductDto) {
+        return this.productsService.create(dto);
+      }
+
+      @Get()
+      findAll() {
+        return this.productsService.findAll();
+      }
+
+      // Specific routes must be above :id routes.
+      @Get('search')
+      search(@Query('keyword') keyword: string) {
+        return this.productsService.search(keyword);
+      }
+
+      @Get('category/:cat')
+      findByCategory(@Param('cat') category: string) {
+        return this.productsService.findByCategory(category);
+      }
+
+      @Patch(':id/toggle')
+      toggle(@Param('id', ParseIntPipe) id: number) {
+        return this.productsService.toggleActive(id);
+      }
+
+      @Get(':id')
+      findOne(@Param('id', ParseIntPipe) id: number) {
+        return this.productsService.findOne(id);
+      }
+
+      @Patch(':id')
+      update(
+        @Param('id', ParseIntPipe) id: number,
+        @Body() dto: PartialUpdateProductDto,
+      ) {
+        return this.productsService.update(id, dto);
+      }
+
+      @Put(':id')
+      replace(
+        @Param('id', ParseIntPipe) id: number,
+        @Body() dto: UpdateProductDto,
+      ) {
+        return this.productsService.replace(id, dto);
+      }
+
+      @Delete(':id')
+      remove(@Param('id', ParseIntPipe) id: number) {
+        return this.productsService.remove(id);
+      }
+    }
+
+Decorator cheat sheet:
+
+@Controller('products') = base URL /products
+@Get()                  = HTTP GET
+@Post()                 = HTTP POST
+@Put(':id')             = HTTP PUT with route parameter
+@Patch(':id')           = HTTP PATCH with route parameter
+@Delete(':id')          = HTTP DELETE
+@Body()                 = JSON request body
+@Param('id')            = value inside URL
+@Query('keyword')       = value after ?keyword=
+ParseIntPipe            = validates/converts id to number
+
+HTTP meaning:
+
+POST   create a new record
+GET    read records
+PUT    fully replace a record; required fields must be sent
+PATCH  partially change a record
+DELETE remove a record
+
+
+11. QUERY, FILTER, SEARCH, SORT AND PAGINATION
+----------------------------------------------
+
+Exact match:
+
+    repo.find({ where: { category: 'Electronics' } });
+
+Multiple AND conditions:
+
+    repo.find({ where: { category: 'Electronics', isActive: true } });
+
+Case-insensitive contains search:
+
+    import { ILike } from 'typeorm';
+    repo.find({ where: { name: ILike(`%${keyword}%`) } });
+
+Greater than / less than:
+
+    import { MoreThan, LessThan } from 'typeorm';
+    repo.find({ where: { price: MoreThan(100) } });
+    repo.find({ where: { stock: LessThan(10) } });
+
+Between:
+
+    import { Between } from 'typeorm';
+    repo.find({ where: { price: Between(100, 500) } });
+
+IN list:
+
+    import { In } from 'typeorm';
+    repo.find({ where: { category: In(['Sports', 'Electronics']) } });
+
+Sort newest first:
+
+    repo.find({ order: { createdAt: 'DESC' } });
+
+Pagination:
+
+    const page = 1;
+    const limit = 10;
+    repo.find({
+      skip: (page - 1) * limit,
+      take: limit,
+      order: { createdAt: 'DESC' },
+    });
+
+Pagination controller:
+
+    @Get('page')
+    paginate(
+      @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+      @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+    ) {
+      return this.productsService.paginate(page, limit);
+    }
+
+Select only some columns:
+
+    repo.find({ select: { id: true, name: true, price: true } });
+
+Count:
+
+    const count = await repo.count({ where: { isActive: true } });
+
+Important route order:
+
+    @Get('search')
+    @Get('category/:cat')
+    @Get(':id')
+
+Put search/category before :id, or Nest may treat "search" as an id.
+
+
+12. FILE UPLOAD API
+-------------------
+
+Install:
+
+    npm install @nestjs/platform-express multer
+    npm install -D @types/multer @types/express
+
+Controller imports:
+
+    import {
+      BadRequestException, Param, Post, UploadedFile, UseInterceptors,
+    } from '@nestjs/common';
+    import { FileInterceptor } from '@nestjs/platform-express';
+    import { diskStorage } from 'multer';
+    import { extname } from 'path';
+
+Controller route:
+
+    @Post(':id/upload')
+    @UseInterceptors(
+      FileInterceptor('file', {
+        storage: diskStorage({
+          destination: './uploads',
+          filename: (_request, file, callback) => {
+            callback(null, `${Date.now()}-${file.originalname}`);
+          },
+        }),
+        fileFilter: (_request, file, callback) => {
+          const allowed = ['.jpg', '.jpeg', '.png', '.pdf'];
+          if (!allowed.includes(extname(file.originalname).toLowerCase())) {
+            return callback(
+              new BadRequestException('Only JPG, JPEG, PNG and PDF are allowed'),
+              false,
+            );
+          }
+          callback(null, true);
+        },
+        limits: { fileSize: 2 * 1024 * 1024 },
+      }),
+    )
+    upload(
+      @Param('id') id: string,
+      @UploadedFile() file: Express.Multer.File,
+    ) {
+      return this.courseService.uploadCourseMaterial(id, file);
+    }
+
+Service:
+
+    uploadCourseMaterial(id: string, file: Express.Multer.File) {
+      if (!file) throw new BadRequestException('File is required');
+      return {
+        message: 'Material uploaded successfully',
+        courseId: id,
+        filename: file.filename,
+        path: file.path,
+      };
+    }
+
+Postman upload:
+
+1. Select POST.
+2. URL: http://localhost:3000/course/5/upload
+3. Body -> form-data.
+4. Key must be exactly: file
+5. Change key type from Text to File.
+6. Select a JPG/PNG/PDF smaller than 2 MB.
+7. Send.
+
+
+13. DEPENDENCY INJECTION PATTERNS
+--------------------------------
+
+A. Same module (intra-module):
+
+    @Injectable()
+    export class CourseService {}
+
+    @Controller('course')
+    export class CourseController {
+      constructor(private readonly courseService: CourseService) {}
+    }
+
+    @Module({
+      controllers: [CourseController],
+      providers: [CourseService],
+    })
+    export class CourseModule {}
+
+B. Different modules (inter-module):
+
+Providing module must export:
+
+    @Module({
+      providers: [CourseService],
+      exports: [CourseService],
+    })
+    export class CourseModule {}
+
+Consuming module must import:
+
+    @Module({
+      imports: [CourseModule],
+      providers: [EnrollmentService],
+    })
+    export class EnrollmentModule {}
+
+Consuming service injects normally:
+
+    constructor(private readonly courseService: CourseService) {}
+
+C. Circular dependency:
+
+EnrollmentModule:
+
+    imports: [forwardRef(() => NotificationModule)],
+    providers: [EnrollmentService],
+    exports: [EnrollmentService],
+
+NotificationModule:
+
+    imports: [forwardRef(() => EnrollmentModule)],
+    providers: [NotificationService],
+    exports: [NotificationService],
+
+EnrollmentService constructor:
+
+    constructor(
+      @Inject(forwardRef(() => NotificationService))
+      private readonly notificationService: NotificationService,
+    ) {}
+
+NotificationService constructor:
+
+    constructor(
+      @Inject(forwardRef(() => EnrollmentService))
+      private readonly enrollmentService: EnrollmentService,
+    ) {}
+
+Required import:
+
+    import { forwardRef, Inject, Injectable } from '@nestjs/common';
+
+Circular DI needs forwardRef on BOTH module imports and BOTH service injections.
+
+
+14. RELATIONSHIPS
+-----------------
+
+RELATIONSHIP QUICK DECISION
+
+Ask: "How many A can connect to how many B?"
+
+One-to-one:
+    One User has one Profile.
+    One Profile belongs to one User.
+
+One-to-many / many-to-one:
+    One Category has many Products.
+    Each Product belongs to one Category.
+
+Many-to-many:
+    One Student takes many Courses.
+    One Course has many Students.
+
+Database result:
+
+One-to-one       -> one foreign-key column with a UNIQUE constraint.
+One-to-many      -> foreign key is stored on the "many" side.
+Many-to-many     -> TypeORM creates a third/junction table.
+
+Important words:
+
+Owning side = side that physically controls the foreign key/join table.
+Inverse side = other side used for navigation.
+Relation property = object such as product.category, not categoryId by default.
+Join column = foreign-key column.
+Junction table = table joining two many-to-many entities.
+
+
+14A. ONE-TO-ONE: USER AND PROFILE
+---------------------------------
+
+Goal:
+
+    User 1 <-> Profile 1
+
+The side containing @JoinColumn() is the owner. Put @JoinColumn() on ONE side only.
+Here User owns the relationship, so the users table stores profileId.
+
+profile.entity.ts:
+
+    import { Column, Entity, OneToOne, PrimaryGeneratedColumn } from 'typeorm';
+    import { User } from './user.entity';
+
+    @Entity('profiles')
+    export class Profile {
+      @PrimaryGeneratedColumn()
+      id: number;
+
+      @Column()
+      bio: string;
+
+      @Column({ nullable: true })
+      phone?: string;
+
+      @OneToOne(() => User, (user) => user.profile)
+      user: User;
+    }
+
+user.entity.ts:
+
+    import {
+      Column, Entity, JoinColumn, OneToOne, PrimaryGeneratedColumn,
+    } from 'typeorm';
+    import { Profile } from './profile.entity';
+
+    @Entity('users')
+    export class User {
+      @PrimaryGeneratedColumn()
+      id: number;
+
+      @Column()
+      name: string;
+
+      @OneToOne(() => Profile, (profile) => profile.user, {
+        cascade: true,
+        nullable: true,
+      })
+      @JoinColumn()
+      profile?: Profile;
+    }
+
+Approximate database tables:
+
+    profiles: id, bio, phone
+    users:    id, name, profileId (UNIQUE foreign key)
+
+Create nested User + Profile using cascade:
+
+DTOs:
+
+    export class CreateProfileDto {
+      @IsString()
+      @IsNotEmpty()
+      bio: string;
+
+      @IsOptional()
+      @IsString()
+      phone?: string;
+    }
+
+    export class CreateUserDto {
+      @IsString()
+      @IsNotEmpty()
+      name: string;
+
+      @IsOptional()
+      @ValidateNested()
+      @Type(() => CreateProfileDto)
+      profile?: CreateProfileDto;
+    }
+
+DTO imports:
+
+    import { Type } from 'class-transformer';
+    import {
+      IsNotEmpty, IsOptional, IsString, ValidateNested,
+    } from 'class-validator';
+
+Service:
+
+    async create(dto: CreateUserDto) {
+      const user = this.userRepo.create(dto);
+      return this.userRepo.save(user);
+    }
+
+Because cascade: true is enabled, saving User also saves the nested Profile.
+
+POST /users body:
+
+    {
+      "name": "Ayesha",
+      "profile": {
+        "bio": "Computer Science student",
+        "phone": "01700000000"
+      }
+    }
+
+Load user with profile:
+
+    return this.userRepo.find({
+      relations: { profile: true },
+    });
+
+Load one:
+
+    return this.userRepo.findOne({
+      where: { id },
+      relations: { profile: true },
+    });
+
+Attach an existing profile without cascade:
+
+    const user = await this.userRepo.findOneBy({ id: userId });
+    const profile = await this.profileRepo.findOneBy({ id: profileId });
+    if (!user || !profile) throw new NotFoundException('User or profile not found');
+    user.profile = profile;
+    return this.userRepo.save(user);
+
+Remove only the link (keep profile row):
+
+    user.profile = null;
+    await this.userRepo.save(user);
+
+The entity property must allow null:
+
+    profile: Profile | null;
+
+If the foreign key should live in profiles instead, move @JoinColumn() to Profile.user.
+
+
+14B. ONE-TO-MANY / MANY-TO-ONE: CATEGORY AND PRODUCT
+-----------------------------------------------------
+
+Goal:
+
+    Category 1 -> Product 1
+               -> Product 2
+               -> Product 3
+
+This is one relationship described from two directions:
+
+Category -> Products is @OneToMany.
+Product -> Category is @ManyToOne.
+
+The foreign key ALWAYS belongs on the many side: products.categoryId.
+@OneToMany cannot exist alone; it needs @ManyToOne on the other entity.
+
+category.entity.ts:
+
+    import { Column, Entity, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
+    import { Product } from './product.entity';
+
+    @Entity('categories')
+    export class Category {
+      @PrimaryGeneratedColumn()
+      id: number;
+
+      @Column({ unique: true })
+      name: string;
+
+      @OneToMany(() => Product, (product) => product.category)
+      products: Product[];
+    }
+
+product.entity.ts:
+
+    import {
+      Column, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn,
+    } from 'typeorm';
+    import { Category } from './category.entity';
+
+    @Entity('products')
+    export class Product {
+      @PrimaryGeneratedColumn()
+      id: number;
+
+      @Column()
+      name: string;
+
+      @Column({ type: 'decimal', precision: 10, scale: 2 })
+      price: number;
+
+      @ManyToOne(() => Category, (category) => category.products, {
+        nullable: false,
+        onDelete: 'RESTRICT',
+      })
+      @JoinColumn({ name: 'categoryId' })
+      category: Category;
+    }
+
+@JoinColumn is optional on @ManyToOne, but adding it lets you choose categoryId as the
+foreign-key column name.
+
+Approximate database tables:
+
+    categories: id, name
+    products:   id, name, price, categoryId
+
+CreateProductDto should receive categoryId, not an entire Category object:
+
+    export class CreateProductDto {
+      @IsString()
+      @IsNotEmpty()
+      name: string;
+
+      @Type(() => Number)
+      @IsNumber()
+      @IsPositive()
+      price: number;
+
+      @Type(() => Number)
+      @IsInt()
+      @IsPositive()
+      categoryId: number;
+    }
+
+Module must register both repositories if one service uses both:
+
+    @Module({
+      imports: [TypeOrmModule.forFeature([Product, Category])],
+      controllers: [ProductsController],
+      providers: [ProductsService],
+    })
+    export class ProductsModule {}
+
+Service constructor:
+
+    constructor(
+      @InjectRepository(Product)
+      private readonly productRepo: Repository<Product>,
+      @InjectRepository(Category)
+      private readonly categoryRepo: Repository<Category>,
+    ) {}
+
+Create a product linked to an existing category:
+
+    async create(dto: CreateProductDto) {
+      const category = await this.categoryRepo.findOneBy({ id: dto.categoryId });
+      if (!category) {
+        throw new NotFoundException(`Category ${dto.categoryId} not found`);
+      }
+
+      const product = this.productRepo.create({
+        name: dto.name,
+        price: dto.price,
+        category,
+      });
+
+      return this.productRepo.save(product);
+    }
+
+POST /products:
+
+    {
+      "name": "Laptop",
+      "price": 1200,
+      "categoryId": 1
+    }
+
+Load products and their category:
+
+    return this.productRepo.find({
+      relations: { category: true },
+      order: { id: 'DESC' },
+    });
+
+Load category and all its products:
+
+    return this.categoryRepo.findOne({
+      where: { id },
+      relations: { products: true },
+    });
+
+Filter by related category id:
+
+    return this.productRepo.find({
+      where: { category: { id: categoryId } },
+      relations: { category: true },
+    });
+
+Filter by related category name:
+
+    return this.productRepo.find({
+      where: { category: { name: ILike(`%${keyword}%`) } },
+      relations: { category: true },
+    });
+
+Change a product's category:
+
+    async changeCategory(productId: number, categoryId: number) {
+      const product = await this.productRepo.findOneBy({ id: productId });
+      const category = await this.categoryRepo.findOneBy({ id: categoryId });
+      if (!product || !category) {
+        throw new NotFoundException('Product or category not found');
+      }
+      product.category = category;
+      return this.productRepo.save(product);
+    }
+
+Controller route:
+
+    @Patch(':id/category/:categoryId')
+    changeCategory(
+      @Param('id', ParseIntPipe) id: number,
+      @Param('categoryId', ParseIntPipe) categoryId: number,
+    ) {
+      return this.productsService.changeCategory(id, categoryId);
+    }
+
+Deletion choices on @ManyToOne:
+
+    onDelete: 'RESTRICT'  -> cannot delete a category that still has products.
+    onDelete: 'CASCADE'   -> deleting category also deletes its products. Dangerous.
+    onDelete: 'SET NULL'  -> product remains and categoryId becomes null.
+
+For SET NULL, relationship must use nullable: true:
+
+    @ManyToOne(() => Category, ..., {
+      nullable: true,
+      onDelete: 'SET NULL',
+    })
+    category: Category | null;
+
+Exam-safe default: use RESTRICT unless the question explicitly requests another behavior.
+
+
+14C. MANY-TO-MANY: STUDENT AND COURSE
+-------------------------------------
+
+Goal:
+
+    Student 1 -> Course A, Course B
+    Student 2 -> Course A, Course C
+
+TypeORM creates a junction table. Put @JoinTable() on ONE side only. That side is the owner.
+Here Student is the owner.
+
+course.entity.ts:
+
+    import { Column, Entity, ManyToMany, PrimaryGeneratedColumn } from 'typeorm';
+    import { Student } from './student.entity';
+
+    @Entity('courses')
+    export class Course {
+      @PrimaryGeneratedColumn()
+      id: number;
+
+      @Column()
+      name: string;
+
+      @Column({ unique: true })
+      code: string;
+
+      @ManyToMany(() => Student, (student) => student.courses)
+      students: Student[];
+    }
+
+student.entity.ts:
+
+    import {
+      Column, Entity, JoinTable, ManyToMany, PrimaryGeneratedColumn,
+    } from 'typeorm';
+    import { Course } from './course.entity';
+
+    @Entity('students')
+    export class Student {
+      @PrimaryGeneratedColumn()
+      id: number;
+
+      @Column()
+      name: string;
+
+      @ManyToMany(() => Course, (course) => course.students)
+      @JoinTable({
+        name: 'student_courses',
+        joinColumn: { name: 'studentId', referencedColumnName: 'id' },
+        inverseJoinColumn: { name: 'courseId', referencedColumnName: 'id' },
+      })
+      courses: Course[];
+    }
+
+Database tables:
+
+    students:       id, name
+    courses:        id, name, code
+    student_courses: studentId, courseId
+
+DTO for creating student and linking existing courses:
+
+    export class CreateStudentDto {
+      @IsString()
+      @IsNotEmpty()
+      name: string;
+
+      @IsArray()
+      @ArrayNotEmpty()
+      @IsInt({ each: true })
+      courseIds: number[];
+    }
+
+DTO imports:
+
+    import {
+      ArrayNotEmpty, IsArray, IsInt, IsNotEmpty, IsString,
+    } from 'class-validator';
+
+Module:
+
+    imports: [TypeOrmModule.forFeature([Student, Course])]
+
+Service constructor:
+
+    constructor(
+      @InjectRepository(Student)
+      private readonly studentRepo: Repository<Student>,
+      @InjectRepository(Course)
+      private readonly courseRepo: Repository<Course>,
+    ) {}
+
+Create student linked to existing courses:
+
+    import { In } from 'typeorm';
+
+    async create(dto: CreateStudentDto) {
+      const courses = await this.courseRepo.findBy({ id: In(dto.courseIds) });
+
+      if (courses.length !== dto.courseIds.length) {
+        throw new NotFoundException('One or more course IDs do not exist');
+      }
+
+      const student = this.studentRepo.create({
+        name: dto.name,
+        courses,
+      });
+
+      return this.studentRepo.save(student);
+    }
+
+POST /students:
+
+    {
+      "name": "Rahim",
+      "courseIds": [1, 2, 3]
+    }
+
+Load students with courses:
+
+    return this.studentRepo.find({
+      relations: { courses: true },
+    });
+
+Load courses with students:
+
+    return this.courseRepo.find({
+      relations: { students: true },
+    });
+
+Add one course without deleting existing links:
+
+    async addCourse(studentId: number, courseId: number) {
+      const student = await this.studentRepo.findOne({
+        where: { id: studentId },
+        relations: { courses: true },
+      });
+      const course = await this.courseRepo.findOneBy({ id: courseId });
+
+      if (!student || !course) {
+        throw new NotFoundException('Student or course not found');
+      }
+
+      const alreadyAdded = student.courses.some((item) => item.id === courseId);
+      if (!alreadyAdded) student.courses.push(course);
+
+      return this.studentRepo.save(student);
+    }
+
+Remove one course link without deleting Student or Course:
+
+    async removeCourse(studentId: number, courseId: number) {
+      const student = await this.studentRepo.findOne({
+        where: { id: studentId },
+        relations: { courses: true },
+      });
+      if (!student) throw new NotFoundException('Student not found');
+
+      student.courses = student.courses.filter((course) => course.id !== courseId);
+      return this.studentRepo.save(student);
+    }
+
+Replace all course links:
+
+    async replaceCourses(studentId: number, courseIds: number[]) {
+      const student = await this.studentRepo.findOneBy({ id: studentId });
+      if (!student) throw new NotFoundException('Student not found');
+
+      const courses = await this.courseRepo.findBy({ id: In(courseIds) });
+      if (courses.length !== courseIds.length) {
+        throw new NotFoundException('One or more courses not found');
+      }
+
+      student.courses = courses;
+      return this.studentRepo.save(student);
+    }
+
+Controller link/unlink routes:
+
+    @Post(':studentId/courses/:courseId')
+    addCourse(
+      @Param('studentId', ParseIntPipe) studentId: number,
+      @Param('courseId', ParseIntPipe) courseId: number,
+    ) {
+      return this.studentsService.addCourse(studentId, courseId);
+    }
+
+    @Delete(':studentId/courses/:courseId')
+    removeCourse(
+      @Param('studentId', ParseIntPipe) studentId: number,
+      @Param('courseId', ParseIntPipe) courseId: number,
+    ) {
+      return this.studentsService.removeCourse(studentId, courseId);
+    }
+
+Test:
+
+    POST   /students/1/courses/2    links course 2 to student 1
+    DELETE /students/1/courses/2    removes only the link
+
+Deleting only the relationship does NOT delete either record. It deletes a junction-table row.
+
+
+14D. WHEN MANY-TO-MANY NEEDS AN EXTRA ENTITY
+--------------------------------------------
+
+Do not use a simple @ManyToMany when the connection itself has fields.
+
+Example: Student enrolls in Course, and enrollment needs:
+
+    enrollmentDate
+    grade
+    status
+
+Create an Enrollment entity instead:
+
+    @Entity('enrollments')
+    export class Enrollment {
+      @PrimaryGeneratedColumn()
+      id: number;
+
+      @ManyToOne(() => Student, (student) => student.enrollments)
+      student: Student;
+
+      @ManyToOne(() => Course, (course) => course.enrollments)
+      course: Course;
+
+      @CreateDateColumn()
+      enrollmentDate: Date;
+
+      @Column({ nullable: true })
+      grade?: string;
+
+      @Column({ default: 'active' })
+      status: string;
+    }
+
+Student:
+
+    @OneToMany(() => Enrollment, (enrollment) => enrollment.student)
+    enrollments: Enrollment[];
+
+Course:
+
+    @OneToMany(() => Enrollment, (enrollment) => enrollment.course)
+    enrollments: Enrollment[];
+
+This converts one many-to-many into two one-to-many relationships:
+
+    Student 1 -> many Enrollments
+    Course  1 -> many Enrollments
+
+Rule: if the junction needs its own data, create a real junction entity.
+
+
+14E. LOADING RELATIONS
+----------------------
+
+Relations are not loaded automatically by default.
+
+Repository find options:
+
+    repo.find({ relations: { category: true } });
+
+Nested relation:
+
+    studentRepo.find({
+      relations: {
+        enrollments: {
+          course: true,
+        },
+      },
+    });
+
+QueryBuilder for more control:
+
+    return this.productRepo
+      .createQueryBuilder('product')
+      .leftJoinAndSelect('product.category', 'category')
+      .where('category.name = :name', { name: 'Electronics' })
+      .orderBy('product.createdAt', 'DESC')
+      .getMany();
+
+LEFT JOIN includes parent rows even if relation is null.
+INNER JOIN includes only rows that have a matching relation.
+
+Avoid eager: true in exams unless requested. Explicit relations are easier to understand and
+avoid accidentally returning large nested objects.
+
+
+14F. CASCADE, ON DELETE AND ORPHANS
+-----------------------------------
+
+These are different concepts:
+
+cascade: true
+    TypeORM operation behavior. Saving a parent can automatically save related objects.
+
+onDelete: 'CASCADE'
+    Database behavior. Deleting the referenced parent deletes child rows.
+
+orphanedRowAction
+    Behavior when children are removed from a parent's collection and parent is saved.
+
+Safer selective cascade:
+
+    cascade: ['insert', 'update']
+
+This permits nested insert/update but not automatic removal.
+
+Be careful with cascade: true on request data. A client may create/update nested records you did
+not intend. For exam questions, use it only when nested creation is explicitly wanted.
+
+Common onDelete choices:
+
+RESTRICT / NO ACTION -> protect child records and reject parent deletion.
+CASCADE              -> delete children with parent.
+SET NULL             -> keep children and clear nullable foreign key.
+
+
+14G. RELATION ID WITHOUT LOADING THE OBJECT
+-------------------------------------------
+
+Sometimes you want categoryId in the response without loading Category.
+
+Option 1: explicit foreign-key column plus relation:
+
+    @Column()
+    categoryId: number;
+
+    @ManyToOne(() => Category, (category) => category.products)
+    @JoinColumn({ name: 'categoryId' })
+    category: Category;
+
+Both properties refer to the same database column.
+
+Option 2: @RelationId:
+
+    @RelationId((product: Product) => product.category)
+    categoryId: number;
+
+Import RelationId from typeorm.
+
+
+14H. RELATIONSHIP MODULE CHECKLIST
+----------------------------------
+
+If one service queries multiple repositories:
+
+    TypeOrmModule.forFeature([Product, Category])
+
+If entities/services are separated into modules:
+
+1. Providing module registers its entity/repository.
+2. Providing module exports TypeOrmModule or exports a service.
+3. Consuming module imports providing module.
+
+Example repository export:
+
+    @Module({
+      imports: [TypeOrmModule.forFeature([Category])],
+      exports: [TypeOrmModule],
+    })
+    export class CategoriesModule {}
+
+Then ProductsModule imports CategoriesModule.
+
+
+14I. RELATIONSHIP POSTMAN TEST ORDER
+------------------------------------
+
+One-to-many:
+
+1. POST /categories with { "name": "Electronics" }
+2. Copy returned category id.
+3. POST /products with categoryId.
+4. GET /products and verify category is included.
+5. GET /categories/1 and verify products array.
+6. PATCH /products/1/category/2 to change category.
+7. Try deleting a used category and verify chosen onDelete behavior.
+
+Many-to-many:
+
+1. POST /courses several times.
+2. Copy course ids.
+3. POST /students with courseIds: [1, 2].
+4. GET /students and verify courses array.
+5. POST /students/1/courses/3 to add one link.
+6. DELETE /students/1/courses/2 to remove one link.
+7. Verify Course 2 still exists; only the junction link should disappear.
+
+One-to-one:
+
+1. POST /users with nested profile.
+2. GET /users/1 with profile relation.
+3. Update profile or unlink it.
+4. Verify whether profile remains based on your deletion/cascade configuration.
+
+
+14J. RELATIONSHIP ERRORS AND FAST FIXES
+---------------------------------------
+
+"Entity metadata for X#relation was not found"
+    Import the correct entity and ensure it is registered through forFeature or autoLoadEntities.
+
+"Cannot query across one-to-many"
+    Use supported nested find options or QueryBuilder; query from the many-side when simpler.
+
+Relation returns undefined or []
+    Add relations: { relationName: true } to find/findOne.
+
+Foreign-key violation
+    The related id does not exist, or deletion is restricted. Find related row first and throw a
+    clear NotFoundException.
+
+Duplicate key in junction table
+    Check whether the link already exists before pushing it into the relation array.
+
+Saving relation deletes old links
+    Assigning student.courses = newArray replaces all links. To add one, first load current
+    courses and push the new course.
+
+Infinite/circular JSON response
+    Do not manually return entity graphs where both sides recursively reference each other.
+    Repository-loaded relations normally avoid this, but custom object construction can cause it.
+
+Wrong foreign-key location
+    One-to-many foreign key belongs on @ManyToOne side. One-to-one foreign key belongs where
+    @JoinColumn is placed. Many-to-many junction ownership belongs where @JoinTable is placed.
+
+RELATIONSHIP MEMORY FORMULA
+
+    @JoinColumn once for one-to-one.
+    Foreign key on @ManyToOne side for one-to-many.
+    @JoinTable once for many-to-many.
+    Load relations explicitly.
+    Find related rows before linking.
+    Save the owning entity after link/unlink.
+    Junction data means create a junction entity.
+
+
+15. POSTMAN AND CURL TESTING
+----------------------------
+
+Start server:
+
+    npm run start:dev
+
+POST/create body:
+
+    {
+      "name": "iPhone 15",
+      "price": 999.99,
+      "stock": 50,
+      "category": "Electronics"
+    }
+
+Postman:
+
+1. Select POST.
+2. URL: http://localhost:3000/products
+3. Body -> raw -> JSON.
+4. Paste JSON.
+5. Send.
+
+All CRUD requests:
+
+    POST   http://localhost:3000/products
+    GET    http://localhost:3000/products
+    GET    http://localhost:3000/products/1
+    PATCH  http://localhost:3000/products/1
+    PUT    http://localhost:3000/products/1
+    DELETE http://localhost:3000/products/1
+
+Search/filter:
+
+    GET http://localhost:3000/products/search?keyword=phone
+    GET http://localhost:3000/products/category/Electronics
+    PATCH http://localhost:3000/products/1/toggle
+
+curl create:
+
+    curl -X POST http://localhost:3000/products \
+      -H "Content-Type: application/json" \
+      -d '{"name":"iPhone 15","price":999.99,"stock":50,"category":"Electronics"}'
+
+curl read:
+
+    curl http://localhost:3000/products
+    curl http://localhost:3000/products/1
+
+curl patch:
+
+    curl -X PATCH http://localhost:3000/products/1 \
+      -H "Content-Type: application/json" \
+      -d '{"price":899.99,"stock":45}'
+
+curl put (send required fields):
+
+    curl -X PUT http://localhost:3000/products/1 \
+      -H "Content-Type: application/json" \
+      -d '{"name":"iPhone 15 Pro","price":1099.99,"category":"Electronics"}'
+
+curl delete:
+
+    curl -X DELETE http://localhost:3000/products/1
+
+Expected status codes:
+
+200 OK          successful GET/PATCH/PUT/DELETE
+201 Created     successful POST
+400 Bad Request invalid DTO, id or file
+404 Not Found   requested row does not exist
+500 Error       server/configuration/programming error
+
+
+16. USEFUL SQL AND PSQL COMMANDS
+--------------------------------
+
+Connect:
+
+    psql -h 127.0.0.1 -U onukrom -d product_inventory_db
+
+Exit:
+
+    \q
+
+List databases:
+
+    \l
+
+List tables:
+
+    \dt
+
+Describe table:
+
+    \d products
+
+SQL CRUD equivalents:
+
+    INSERT INTO products (name, price, stock, category)
+    VALUES ('Phone', 500, 10, 'Electronics');
+
+    SELECT * FROM products;
+
+    SELECT * FROM products WHERE id = 1;
+
+    SELECT * FROM products
+    WHERE name ILIKE '%phone%';
+
+    SELECT * FROM products
+    WHERE category = 'Electronics'
+    ORDER BY "createdAt" DESC;
+
+    UPDATE products
+    SET price = 450
+    WHERE id = 1;
+
+    DELETE FROM products
+    WHERE id = 1;
+
+Use TypeORM repository methods in NestJS when the question requires TypeORM. SQL is useful
+for understanding and checking data in pgAdmin, not as a replacement for the repository.
+
+
+17. COMMON ERRORS AND FIXES
+---------------------------
+
+ERROR: role "postgres" does not exist
+
+Cause: username is wrong.
+Fix on this Mac:
+
+    username: 'onukrom'
+    password: ''
+
+See available roles:
+
+    psql -h 127.0.0.1 -d postgres -c "\du"
+
+ERROR: database "xyz" does not exist
+
+Fix:
+
+    createdb xyz
+
+ERROR: connect ECONNREFUSED 127.0.0.1:5432
+
+PostgreSQL is not running. Fix:
+
+    brew services start postgresql@15
+    pg_isready
+
+ERROR: EADDRINUSE port 3000
+
+Another server uses port 3000. Stop its terminal with Ctrl+C, or run:
+
+    PORT=3001 npm run start:dev
+
+ERROR: Nest cannot resolve dependencies
+
+Checklist:
+
+1. Is service decorated with @Injectable()?
+2. Is service inside providers[]?
+3. If used by another module, is it inside exports[]?
+4. Does consuming module import the providing module?
+5. If circular, is forwardRef used on both sides?
+
+ERROR: No repository for Entity was found
+
+Fix module:
+
+    imports: [TypeOrmModule.forFeature([EntityName])]
+
+Fix root connection:
+
+    autoLoadEntities: true
+
+ERROR: Validation does nothing
+
+Check:
+
+1. class-validator and class-transformer installed.
+2. Global ValidationPipe enabled.
+3. @Body() parameter uses the DTO class type.
+4. DTO properties have decorators.
+
+ERROR: Property should not exist
+
+The JSON contains a field not declared/decorated in the DTO. Remove it or add the correct DTO
+property and validators.
+
+ERROR: GET /products/search says id must be a number
+
+Move @Get('search') above @Get(':id'). Specific routes go first.
+
+ERROR: Duplicate route
+
+Do not declare the same HTTP method and URL twice, such as two @Get(':id') methods.
+
+ERROR: Upload says file is missing
+
+In Postman use Body -> form-data. Key must match FileInterceptor('file') and type must be File.
+
+ERROR: Relation metadata not found
+
+Register both related entities and check that the arrow-function entity names/imports are right.
+
+
+18. EXAM CHECKLIST
+------------------
+
+Before coding:
+
+[ ] Read entity fields, types, defaults, nullable and unique rules.
+[ ] List every required API method and route.
+[ ] Mark POST DTO, PUT DTO and PATCH DTO.
+[ ] Notice search/filter routes and place them before :id.
+
+Setup:
+
+[ ] Create Nest project.
+[ ] Generate module, controller and service.
+[ ] Install TypeORM, pg, validator, transformer and mapped-types.
+[ ] Create PostgreSQL database.
+[ ] Configure TypeOrmModule.forRoot().
+[ ] Enable ValidationPipe.
+
+Resource:
+
+[ ] Create entity with @Entity().
+[ ] Add @PrimaryGeneratedColumn().
+[ ] Add every @Column() exactly as specified.
+[ ] Create CreateDto validators.
+[ ] Create PUT DTO extending CreateDto.
+[ ] Create PATCH DTO using PartialType.
+[ ] Register entity with forFeature().
+[ ] Inject repository in service.
+[ ] Put all database logic in service.
+[ ] Throw NotFoundException when missing.
+[ ] Controller calls service only.
+[ ] Use ParseIntPipe for numeric id.
+
+Testing:
+
+[ ] npm run build
+[ ] npm run start:dev
+[ ] POST valid object
+[ ] POST invalid object
+[ ] GET all and one
+[ ] GET missing id -> 404
+[ ] PATCH partial object
+[ ] PUT full object
+[ ] DELETE then delete again -> 404
+[ ] Test search/filter/toggle/file routes
+[ ] Check table/data in pgAdmin
+
+
+19. FOUR LAB-TASK ROUTE CHECKLISTS
+----------------------------------
+
+RELATIONSHIP SHOWCASE PROJECT
+
+Project in this workspace: lab-task-05-database-relationships
+Project quick guide: lab-task-05-database-relationships/RELATIONSHIPS_GUIDE.txt
+
+It contains running examples of:
+
+    User <-> Profile          one-to-one
+    Category <-> Products    one-to-many / many-to-one
+    Students <-> Courses     many-to-many
+    Enrollment               junction entity with grade/status/date
+
+
+LAB 1 - BASIC COURSE API
+
+Project in this workspace: lab-task-01-course-management
+
+    GET    /course
+    GET    /course/:id
+    POST   /course
+    PUT    /course/:id
+    PATCH  /course/:id
+    DELETE /course/:id
+
+Each controller method calls a CourseService method. Responses are simple strings.
+
+LAB 2 - VALIDATION AND UPLOAD
+
+Project in this workspace: lab-task-02-course-validation-upload
+
+    GET    /course
+    GET    /course/:id
+    POST   /course
+    PUT    /course/:id
+    PATCH  /course/:id
+    DELETE /course/:id
+    POST   /course/:id/upload
+
+Create fields:
+
+name required string
+code required string
+instructor required string
+credits required number from 1 to 6
+description optional string
+
+Upload allows JPG, JPEG, PNG and PDF; maximum 2 MB; form-data key is file.
+
+LAB 3 - DEPENDENCY INJECTION
+
+Project in this workspace: lab-task-03-university-di
+
+    GET  /course
+    GET  /course/:id
+    POST /course
+    GET  /enrollment
+    POST /enrollment
+    POST /notification/send
+    POST /notification/check
+
+CourseController -> CourseService is intra-module DI.
+EnrollmentService -> CourseService is inter-module DI.
+EnrollmentService <-> NotificationService is circular DI using forwardRef.
+
+LAB 4 - PRODUCT INVENTORY DATABASE CRUD
+
+Project in this workspace: lab-task-04-product-inventory
+
+    POST   /products
+    GET    /products
+    GET    /products/search?keyword=phone
+    GET    /products/category/Electronics
+    GET    /products/:id
+    PATCH  /products/:id
+    PUT    /products/:id
+    DELETE /products/:id
+    PATCH  /products/:id/toggle
+
+Database: product_inventory_db
+PostgreSQL username on this Mac: onukrom
+
+
+FINAL MEMORY FORMULA
+--------------------
+
+Entity defines the table.
+DTO validates input.
+forFeature gives repository access.
+Service queries the repository.
+Controller exposes the service through HTTP.
+AppModule connects the database and modules.
+ValidationPipe protects every request.
+
+ENTITY -> DTO -> MODULE -> SERVICE -> CONTROLLER -> TEST

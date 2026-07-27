@@ -1,0 +1,80 @@
+DATABASE RELATIONSHIPS SHOWCASE - RUN GUIDE
+===========================================
+
+Database: relationships_demo_db
+Start: npm run start:dev
+Base URL: http://localhost:3000
+
+1. ONE-TO-ONE: User <-> Profile
+
+POST /users
+Body:
+{
+  "name": "Ayesha",
+  "profile": { "bio": "CSE student", "phone": "01700000000" }
+}
+
+GET /users
+GET /users/1
+DELETE /users/1/profile (unlinks profile)
+
+Study: src/users/entities/user.entity.ts and profile.entity.ts
+The @JoinColumn side (User) owns the relation and stores profileId.
+
+2. ONE-TO-MANY / MANY-TO-ONE: Category <-> Products
+
+POST /categories
+Body: { "name": "Electronics" }
+
+POST /products
+Body: { "name": "Laptop", "price": 1200, "categoryId": 1 }
+
+GET /categories (each category includes products)
+GET /products (each product includes category)
+PATCH /products/1/category/2 (changes the category)
+
+Study: src/catalog/entities/category.entity.ts and product.entity.ts
+The many side (Product) stores categoryId.
+
+3. MANY-TO-MANY: Students <-> Courses
+
+POST /courses
+Body: { "name": "Database", "code": "DB101" }
+
+POST /students
+Body: { "name": "Rahim", "courseIds": [1] }
+
+GET /students (includes courses)
+GET /courses (includes students)
+POST /students/1/courses/2 (adds a link)
+DELETE /students/1/courses/2 (removes only the link)
+
+Study: src/academy/entities/student.entity.ts and course.entity.ts
+@JoinTable on Student creates student_courses(studentId, courseId).
+
+4. JUNCTION ENTITY: Enrollment
+
+Use this when a many-to-many connection needs its own data.
+
+POST /enrollments
+Body: { "studentId": 1, "courseId": 1, "grade": "A" }
+
+GET /enrollments
+
+The enrollments table stores student, course, enrollmentDate, grade and status.
+Study: src/academy/entities/enrollment.entity.ts
+
+DATABASE TABLES
+
+users, profiles
+categories, products
+students, courses, student_courses
+enrollments
+
+BUILD AND TEST
+
+npm run build
+npm test
+
+For the complete theory, DTO, cascade, join, query and troubleshooting reference, read:
+../manual.txt section 14.

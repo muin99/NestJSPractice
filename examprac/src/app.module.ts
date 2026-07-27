@@ -1,0 +1,24 @@
+import { Module } from '@nestjs/common';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { UserModule } from './user/user.module';
+import { TypeOrmModule } from '@nestjs/typeorm';
+
+@Module({
+  imports: [
+    TypeOrmModule.forRoot({
+      type: 'postgres',
+      host: '127.0.0.1',
+      port: 5432,
+      username: 'onukrom',
+      password: '',
+      database: 'product_inventory_db',
+      autoLoadEntities: true,
+      synchronize: true,
+    }),
+    UserModule,
+  ],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}
